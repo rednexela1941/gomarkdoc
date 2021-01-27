@@ -6,9 +6,12 @@ import (
 	"go/ast"
 	"go/token"
 	"io"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	stdlog "log"
 
 	"github.com/princjef/gomarkdoc/logger"
 	"gopkg.in/src-d/go-git.v4"
@@ -84,8 +87,10 @@ func NewConfig(log logger.Logger, workDir string, pkgDir string, opts ...ConfigO
 	}
 
 	if cfg.Repo == nil || cfg.Repo.Remote == "" || cfg.Repo.DefaultBranch == "" || cfg.Repo.PathFromRoot == "" {
+		fmt.Println("Attemptint to get rep from dir.")
 		repo, err := getRepoForDir(log, cfg.WorkDir, cfg.PkgDir, cfg.Repo)
 		if err != nil {
+			fmt.Println("Error ", err.Error())
 			log.Infof("unable to resolve repository due to error: %s", err)
 			cfg.Repo = nil
 			return cfg, nil
@@ -142,6 +147,8 @@ func ConfigWithRepoOverrides(overrides *Repo) ConfigOption {
 }
 
 func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, error) {
+	lg := stdlog.New(os.Stdout, "stdlog\t", stdlog.Lshortfile)
+	lg.Println("getRepoForDir")
 	if ri == nil {
 		ri = &Repo{}
 	}
@@ -150,6 +157,7 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 		DetectDotGit: true,
 	})
 	if err != nil {
+		lg.Println(err)
 		return nil, err
 	}
 
@@ -157,6 +165,7 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 	if ri.PathFromRoot == "" {
 		t, err := repo.Worktree()
 		if err != nil {
+			lg.Println(err)
 			return nil, err
 		}
 
@@ -164,6 +173,7 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 		// it absolute (i.e. prefix with /).
 		p, err := filepath.Rel(t.Filesystem.Root(), wd)
 		if err != nil {
+			lg.Println(err)
 			return nil, err
 		}
 
@@ -172,11 +182,13 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 
 	// No need to check remotes if we already have a url and a default branch
 	if ri.Remote != "" && ri.DefaultBranch != "" {
+		lg.Println(err)
 		return ri, nil
 	}
 
 	remotes, err := repo.Remotes()
 	if err != nil {
+		lg.Println(err)
 		return nil, err
 	}
 
@@ -190,11 +202,13 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 	// If there's no "origin", just use the first remote
 	if ri.DefaultBranch == "" || ri.Remote == "" {
 		if len(remotes) == 0 {
+			lg.Println("Remotes not found.")
 			return nil, errors.New("no remotes found for repository")
 		}
 
 		repo, ok := processRemote(log, repo, remotes[0], *ri)
 		if !ok {
+			lg.Println("Remotes not found.", remotes, *ri)
 			return nil, errors.New("no remotes found for repository")
 		}
 
@@ -205,12 +219,16 @@ func getRepoForDir(log logger.Logger, wd string, dir string, ri *Repo) (*Repo, e
 }
 
 func processRemote(log logger.Logger, repository *git.Repository, remote *git.Remote, ri Repo) (*Repo, bool) {
-	repo := &ri
 
+	lg := stdlog.New(os.Stdout, "stdlog\t", stdlog.Lshortfile)
+
+	repo := &ri
+	lg.Printf("%+v repo  %+v %+v\n", ri, remote, ri)
 	c := remote.Config()
 
 	// TODO: configurable remote name?
 	if c.Name != "origin" || len(c.URLs) == 0 {
+		lg.Println("Skipping remote because fuked")
 		log.Debugf("skipping remote because it is not the origin or it has no URLs")
 		return nil, false
 	}
@@ -219,6 +237,7 @@ func processRemote(log logger.Logger, repository *git.Repository, remote *git.Re
 	if repo.DefaultBranch == "" {
 		refs, err := repository.References()
 		if err != nil {
+			lg.Println(err.Error())
 			log.Debugf("skipping remote %s because listing its refs failed: %s", c.URLs[0], err)
 			return nil, false
 		}
@@ -232,10 +251,12 @@ func processRemote(log logger.Logger, repository *git.Repository, remote *git.Re
 				if err == io.EOF {
 					break
 				}
+				lg.Println(err.Error())
 
 				log.Debugf("skipping remote %s because listing its refs failed: %s", c.URLs[0], err)
 				return nil, false
 			}
+			lg.Println(ref, string(ref.Name()), "HEAD:", headRef)
 			defer refs.Close()
 
 			if ref == nil {
@@ -250,6 +271,7 @@ func processRemote(log logger.Logger, repository *git.Repository, remote *git.Re
 		}
 
 		if repo.DefaultBranch == "" {
+			lg.Println("Ne default branch found", repo)
 			log.Debugf("skipping remote %s because no default branch was found", c.URLs[0])
 			return nil, false
 		}

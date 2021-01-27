@@ -93,6 +93,8 @@ func buildCommand() *cobra.Command {
 			opts.repository.DefaultBranch = viper.GetString("repository.defaultBranch")
 			opts.repository.PathFromRoot = viper.GetString("repository.path")
 
+			fmt.Printf("repository:  %+v \n", opts.repository)
+
 			if opts.check && opts.output == "" {
 				log.Fatal("check mode cannot be run without an output set")
 			}
